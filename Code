@@ -1,0 +1,140 @@
+#pip install tkinter pip install openai-whisper pip install gTTS pip install soundfile pip install numpy
+
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter import ttk
+import threading
+import os
+
+import whisper
+from gtts import gTTS
+import soundfile as sf
+import numpy as np
+
+class VoiceTransformerApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Voice Transformer by Viaja Tech")
+        self.create_widgets()
+        self.model = None
+
+    def create_widgets(self):
+        # Seleccionar archivo de voz
+        ttk.Label(self.root, text="Selecciona tu archivo de voz:").grid(column=0, row=0, padx=10, pady=10, sticky='W')
+        self.source_voice_path = tk.StringVar()
+        ttk.Entry(self.root, textvariable=self.source_voice_path, width=50).grid(column=1, row=0, padx=10, pady=10)
+        ttk.Button(self.root, text="Buscar", command=self.browse_source_voice).grid(column=2, row=0, padx=10, pady=10)
+
+        # Seleccionar idioma objetivo para la voz
+        ttk.Label(self.root, text="Selecciona el idioma objetivo:").grid(column=0, row=1, padx=10, pady=10, sticky='W')
+        self.target_language = tk.StringVar()
+        languages = [
+            "af", "ar", "bn", "ca", "cs", "da", "de", "el", "en", "es",
+            "fi", "fr", "hi", "hu", "id", "it", "ja", "ko", "nl", "pl",
+            "pt", "ro", "ru", "sv", "ta", "te", "tr", "vi", "zh-cn", "zh-tw"
+        ]
+        language_names = [
+            "Afrikaans", "Arabic", "Bengali", "Catalan", "Czech", "Danish", "German",
+            "Greek", "English", "Spanish", "Finnish", "French", "Hindi", "Hungarian",
+            "Indonesian", "Italian", "Japanese", "Korean", "Dutch", "Polish", "Portuguese",
+            "Romanian", "Russian", "Swedish", "Tamil", "Telugu", "Turkish", "Vietnamese",
+            "Chinese (Simplified)", "Chinese (Traditional)"
+        ]
+        self.language_combo = ttk.Combobox(self.root, textvariable=self.target_language, values=language_names, state='readonly')
+        self.language_combo.grid(column=1, row=1, padx=10, pady=10)
+        self.language_combo.current(8)  # English por defecto
+
+        # Seleccionar ubicación para guardar el audio
+        ttk.Label(self.root, text="Selecciona la ubicación para guardar el resultado:").grid(column=0, row=2, padx=10, pady=10, sticky='W')
+        self.output_path = tk.StringVar()
+        ttk.Entry(self.root, textvariable=self.output_path, width=50).grid(column=1, row=2, padx=10, pady=10)
+        ttk.Button(self.root, text="Guardar en", command=self.save_output_file).grid(column=2, row=2, padx=10, pady=10)
+
+        # Botón para iniciar la conversión
+        ttk.Button(self.root, text="Convertir Voz", command=self.start_conversion).grid(column=1, row=3, padx=10, pady=20)
+
+        # Etiqueta de progreso
+        self.progress_label = ttk.Label(self.root, text="")
+        self.progress_label.grid(column=1, row=4, padx=10, pady=10)
+
+    def browse_source_voice(self):
+        filename = filedialog.askopenfilename(
+            title="Selecciona tu archivo de voz",
+            filetypes=[("Archivos de Audio", "*.wav *.mp3 *.flac *.m4a")]
+        )
+        self.source_voice_path.set(filename)
+
+    def save_output_file(self):
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".mp3",
+            filetypes=[("Archivos MP3", "*.mp3"), ("Archivos WAV", "*.wav")]
+        )
+        self.output_path.set(filename)
+
+    def start_conversion(self):
+        # Ejecutar la conversión en un hilo separado para no bloquear la GUI
+        threading.Thread(target=self.convert_voice).start()
+
+    def convert_voice(self):
+        source_path = self.source_voice_path.get()
+        output_path = self.output_path.get()
+        language_name = self.target_language.get()
+
+        if not source_path:
+            messagebox.showerror("Error", "Por favor, selecciona tu archivo de voz.")
+            return
+
+        if not output_path:
+            messagebox.showerror("Error", "Por favor, selecciona la ubicación para guardar el resultado.")
+            return
+
+        # Mapa de nombres de idiomas a códigos
+        language_map = {
+            "Afrikaans": "af", "Arabic": "ar", "Bengali": "bn", "Catalan": "ca",
+            "Czech": "cs", "Danish": "da", "German": "de", "Greek": "el",
+            "English": "en", "Spanish": "es", "Finnish": "fi", "French": "fr",
+            "Hindi": "hi", "Hungarian": "hu", "Indonesian": "id", "Italian": "it",
+            "Japanese": "ja", "Korean": "ko", "Dutch": "nl", "Polish": "pl",
+            "Portuguese": "pt", "Romanian": "ro", "Russian": "ru", "Swedish": "sv",
+            "Tamil": "ta", "Telugu": "te", "Turkish": "tr", "Vietnamese": "vi",
+            "Chinese (Simplified)": "zh-cn", "Chinese (Traditional)": "zh-tw"
+        }
+
+        language_code = language_map.get(language_name, "en")  # Default a inglés
+
+        try:
+            self.update_progress("Cargando modelo de transcripción...")
+            if not self.model:
+                self.model = whisper.load_model("base")
+
+            self.update_progress("Transcribiendo audio...")
+            result = self.model.transcribe(source_path, language=language_code)
+            transcription = result['text']
+
+            if not transcription.strip():
+                self.update_progress("")
+                messagebox.showerror("Error", "No se pudo transcribir el audio. Asegúrate de que el audio tenga habla clara.")
+                return
+
+            self.update_progress("Sintetizando voz objetivo...")
+            tts = gTTS(text=transcription, lang=language_code)
+
+            # Guardar el audio sintetizado
+            tts.save(output_path)
+
+            self.update_progress("")
+            messagebox.showinfo("Éxito", f"Voz convertida y guardada en:\n{output_path}")
+
+        except Exception as e:
+            self.update_progress("")
+            messagebox.showerror("Error", f"Ocurrió un error durante la conversión:\n{str(e)}")
+
+    def update_progress(self, message):
+        self.progress_label.config(text=message)
+        self.root.update_idletasks()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = VoiceTransformerApp(root)
+    root.mainloop()
+
