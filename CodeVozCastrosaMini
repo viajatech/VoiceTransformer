@@ -1,0 +1,131 @@
+#pip install librosa soundfile numpy
+
+
+import tkinter as tk
+from tkinter import filedialog, messagebox
+from tkinter import ttk
+import numpy as np
+import librosa
+import soundfile as sf
+import threading
+
+class VoiceChangerApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Voice Changer by Viaja Tech")
+        self.create_widgets()
+
+    def create_widgets(self):
+        ttk.Label(self.root, text="Selecciona tu archivo de voz:").grid(column=0, row=0, padx=10, pady=10, sticky='W')
+        self.source_voice_path = tk.StringVar()
+        ttk.Entry(self.root, textvariable=self.source_voice_path, width=50).grid(column=1, row=0, padx=10, pady=10)
+        ttk.Button(self.root, text="Buscar", command=self.browse_source_voice).grid(column=2, row=0, padx=10, pady=10)
+
+        ttk.Label(self.root, text="Selecciona la voz objetivo (archivo de audio):").grid(column=0, row=1, padx=10, pady=10, sticky='W')
+        self.target_voice_path = tk.StringVar()
+        ttk.Entry(self.root, textvariable=self.target_voice_path, width=50).grid(column=1, row=1, padx=10, pady=10)
+        ttk.Button(self.root, text="Buscar", command=self.browse_target_voice).grid(column=2, row=1, padx=10, pady=10)
+
+        ttk.Label(self.root, text="Selecciona la ubicación para guardar el resultado:").grid(column=0, row=2, padx=10, pady=10, sticky='W')
+        self.output_path = tk.StringVar()
+        ttk.Entry(self.root, textvariable=self.output_path, width=50).grid(column=1, row=2, padx=10, pady=10)
+        ttk.Button(self.root, text="Guardar en", command=self.save_output_file).grid(column=2, row=2, padx=10, pady=10)
+
+        ttk.Button(self.root, text="Convertir Voz", command=self.start_conversion).grid(column=1, row=3, padx=10, pady=20)
+
+        self.progress_label = ttk.Label(self.root, text="")
+        self.progress_label.grid(column=1, row=4, padx=10, pady=10)
+
+    def browse_source_voice(self):
+        filename = filedialog.askopenfilename(
+            title="Selecciona tu archivo de voz",
+            filetypes=[("Archivos de Audio", "*.wav *.mp3 *.flac *.m4a")]
+        )
+        self.source_voice_path.set(filename)
+
+    def browse_target_voice(self):
+        filename = filedialog.askopenfilename(
+            title="Selecciona el archivo de voz objetivo",
+            filetypes=[("Archivos de Audio", "*.wav *.mp3 *.flac *.m4a")]
+        )
+        self.target_voice_path.set(filename)
+
+    def save_output_file(self):
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".wav",
+            filetypes=[("Archivos WAV", "*.wav")]
+        )
+        self.output_path.set(filename)
+
+    def start_conversion(self):
+        threading.Thread(target=self.convert_voice).start()
+
+    def convert_voice(self):
+        source_path = self.source_voice_path.get()
+        target_path = self.target_voice_path.get()
+        output_path = self.output_path.get()
+
+        if not source_path or not target_path or not output_path:
+            messagebox.showerror("Error", "Por favor, completa todos los campos.")
+            return
+
+        try:
+            self.update_progress("Cargando archivos de audio...")
+            # Cargar los archivos de audio
+            source_audio, source_sr = librosa.load(source_path, sr=None)
+            target_audio, target_sr = librosa.load(target_path, sr=None)
+
+            self.update_progress("Analizando tono de la voz objetivo...")
+            # Analizar el tono promedio de la voz objetivo
+            target_pitch = self.analyze_pitch(target_audio, target_sr)
+
+            self.update_progress("Ajustando tono de tu voz...")
+            # Ajustar el tono de la voz fuente para aproximarse al tono objetivo
+            source_pitch = self.analyze_pitch(source_audio, source_sr)
+            pitch_shift = target_pitch / source_pitch
+
+            # Limitar el factor de cambio de tono para evitar distorsión excesiva
+            if pitch_shift > 2.0:
+                pitch_shift = 2.0
+            elif pitch_shift < 0.5:
+                pitch_shift = 0.5
+
+            # Realizar el cambio de tono
+            adjusted_audio = self.change_pitch(source_audio, source_sr, pitch_shift)
+
+            self.update_progress("Guardando el archivo de audio resultante...")
+            # Guardar el audio ajustado
+            sf.write(output_path, adjusted_audio, source_sr)
+
+            self.update_progress("")
+            messagebox.showinfo("Éxito", f"Voz convertida y guardada en:\n{output_path}")
+
+        except Exception as e:
+            self.update_progress("")
+            messagebox.showerror("Error", f"Ocurrió un error durante la conversión:\n{str(e)}")
+
+    def analyze_pitch(self, audio, sr):
+        # Extraer el contorno de tono (pitch) usando el método de autocorrelación de librosa
+        pitches, magnitudes = librosa.piptrack(y=audio, sr=sr)
+        pitch_values = pitches[pitches > 0]
+
+        if len(pitch_values) == 0:
+            return 0
+
+        # Calcular el tono promedio
+        average_pitch = np.mean(pitch_values)
+        return average_pitch
+
+    def change_pitch(self, audio, sr, pitch_shift):
+        # Cambiar el tono del audio utilizando el módulo effects de librosa
+        n_steps = np.log2(pitch_shift) * 12  # Convertir factor de cambio de tono a semitonos
+        return librosa.effects.pitch_shift(audio, sr=sr, n_steps=n_steps)
+
+    def update_progress(self, message):
+        self.progress_label.config(text=message)
+        self.root.update_idletasks()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = VoiceChangerApp(root)
+    root.mainloop()
